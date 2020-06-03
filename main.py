@@ -23,7 +23,7 @@ terminal = то топик автоматически будет установ�
 
 
 Команды принимаемые терминалом формате json
-voice, tts', 'ask', 'volume', 'nvolume'
+voice, tts', 'ask', 'volume', 'nvolume', 'listener'
 Их описание: https://github.com/Aculeasis/mdmTerminal2/wiki/API-(draft)
 поример
 {"tts":"ТЕСТ"} - сказать "ТЕКСТ"
@@ -146,7 +146,7 @@ class Main:
     def _call_cmd(self, msg: dict):
         for key, value in msg.items():
             self.log('New command {}, data: {}'.format(key, repr(value)))
-            if key in ['voice', 'tts', 'ask', 'volume', 'nvolume']:
+            if key in ['voice', 'tts', 'ask', 'volume', 'nvolume', 'listener']:
                 self.own.terminal_call(key, value)
             else:
                 self.own.say('Получена неизвестная команда')

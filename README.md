@@ -5,7 +5,7 @@
 ```
 mdmTerminal2/env/bin/python -m pip install paho-mqtt
 cd mdmTerminal2/src/plugins
-git clone https://github.com/Aculeasis/mdmt2-mqtt.git
+git clone https://github.com/netman1ac/mdmt2-mqtt.git
 ```
 И перезапустить терминал.
 ```
@@ -33,7 +33,7 @@ terminal = то топик автоматически будет установ�
 
 
 Команды принимаемые терминалом формате json
-voice, tts', 'ask', 'volume', 'nvolume'
+voice, tts', 'ask', 'volume', 'nvolume', 'listener'
 Их описание: https://github.com/Aculeasis/mdmTerminal2/wiki/API-(draft)
 поример
 {"tts":"ТЕСТ"} - сказать "ТЕКСТ"
