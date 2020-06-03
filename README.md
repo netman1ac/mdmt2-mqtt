@@ -82,4 +82,59 @@ notify_mqtt:
    - service: script.notify_mqtt
       data_template:
         message: "Тут текс для проговаривания терминалом"
+
+
+Для управления терминалом из Lovelace Home Assistant 
+Cоздаем скрипт:
+voice_terminal_setting:
+  sequence:
+  - service: mqtt.publish
+    data_template:
+      payload: '{"{{ cmd }}":"{{ value }}"}'
+      topic: terminal/cmd
+
+Cоздаем input_boolean для включения/отключения микрофона терминала
+voice_assist_listen:
+  name: Терминал слушает
+  initial: true
+
+Создаем input_number для управления громкостью терминала
+voice_assist_volume:
+  name: Громкость терминала
+  mode: slider
+  initial: 100
+  min: 1
+  max: 100
+  step: 1
+
+И создаем две автоматизации:
+- alias: 'Voice Terminal Switch Mic on off'
+  trigger:
+    platform: state
+    entity_id: input_boolean.voice_assist_listen
+  action: 
+  - service: script.voice_terminal_setting
+    data_template: 
+      cmd: 'listener'
+      value: '{{ states("input_boolean.voice_assist_listen") }}'
+  - service: script.notify_mqtt
+    data_template:
+      message: >
+        {% if is_state("input_boolean.voice_assist_listen", "on") %}
+          'Включаю активацию по голосовой фразе'
+        {% else %}
+          'Выключаю активацию по голосовой фразе'
+        {%endif%}
+
+
+- alias: 'Set Voice Terminal Volume'
+  trigger:
+    platform: state
+    entity_id: input_number.voice_assist_volume
+  action: 
+  - service: script.voice_terminal_setting
+    data_template:
+      cmd: 'volume'
+      value: '{{ states("input_number.voice_assist_volume")|round }}'
+
 ```
