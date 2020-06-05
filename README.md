@@ -41,26 +41,15 @@ terminal = то топик автоматически будет установ�
 
  ###Home Assistant config###
 
-Сенсоры для приема сообщений от терминала
-#sensor
-- platform: mqtt
-  state_topic: "terminal/conversation"
-  name: 'terminal_room'
-
-- platform: mqtt
-  state_topic: "terminal/state"
-  name: 'terminal_room_state'
-
-Загоняем пришедший текст в интеграцию conversation
-#automation 
-- alias: 'Terminal Room'
+Автоматизация для приема сообщений от терминала так как через сенсор работает с задержкой 
+- alias: 'Room Voice Terminal'
   trigger:
-    platform: state
-    entity_id: sensor.terminal_room
+    platform: mqtt
+    topic: terminal/conversation
   action:
   - service: conversation.process
     data_template:
-      text: '{{ states("sensor.terminal_room") }}'
+      text: "{{ trigger.payload }}"
 
 Скрипт передачи текста терминалу для проговаривания голосом
 #scripts
