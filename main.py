@@ -9,59 +9,6 @@ NAME = 'mqtt'
 API = 999
 TERMINAL_VER_MIN = (0, 15, 10)
 
-"""
-MQTT топики для работы с терминалом
-#topics:
-TOPIC составляется из настройки terminal =  в секции smarthome и выставляется в "terminal" при отсутствии 
-в настройках.
-cmd: передача: текста терминалу для проговаривания голосом, команд для управления терминалом
-conversation: прием терминалом текста для обработки в интеграции conversation
-state: прием статусов терминала для автоматизаций 
-Например в настройках установлено:
-terminal = 'room' то топик будет room/cmd
-terminal = то топик автоматически будет установлен в terminal/cmd
-
-
-Команды принимаемые терминалом формате json
-'voice, 'tts', 'ask', 'volume', 'nvolume', 'listener'
-Их описание: https://github.com/Aculeasis/mdmTerminal2/wiki/API-(draft)
-Пример
-{"tts":"ТЕСТ"} - сказать "ТЕКСТ"
-{"volume":"50"} - установить громкость терминала в 50%
-
- ###Home Assistant config###
-Автоматизация для приема сообщений от терминала так как через сенсор работает с задержкой 
-- alias: 'Room Voice Terminal'
-  trigger:
-    platform: mqtt
-    topic: terminal/conversation
-  action:
-  - service: conversation.process
-    data_template:
-      text: "{{ trigger.payload }}"
-
-Скрипт передачи текста терминалу для проговаривания голосом
-#scripts
-notify_mqtt:
-  sequence:
-  - service: mqtt.publish
-    data_template:
-      payload: '{"tts":"{{ message }}"}'
-      topic: terminal/cmd
-
-Пример использования в автоматизациях 
-- alias: 'ТЕСТ'
-  trigger:
-    - platform: state
-      entity_id:
-        - binary_sensor.window_sensor
-      to: 'on'
-  action:
-   - service: script.notify_mqtt
-      data_template:
-        message: "Тут текс для проговаривания терминалом"
- """
-
 
 class Main:
     CMD = 'cmd'
@@ -87,8 +34,19 @@ class Main:
         self.TOPIC_CMD = self.TOPIC + '/cmd'
         self.TOPIC_STATE = self.TOPIC + '/state'
 
-        self._mqtt = mqtt.Client(self.TOPIC)
+        self._mqtt = mqtt.Client(self.TOPIC,clean_session=False)
+        self._mqtt.on_connect = self._on_connect
+        self._mqtt.on_disconnect = self._on_disconnect
         self._mqtt.on_message = self._on_message
+        self._mqtt.reconnect_delay_set(min_delay = 1, max_delay = 600)
+
+    def _on_connect(self, client, userdata, flags, rc):
+        self.log('MQTT connected, subscribing to: {}'.format(self.TOPIC_CMD), logger.INFO)
+        self._mqtt.subscribe(self.TOPIC_CMD,qos=1)
+
+    def _on_disconnect(self, client, userdata, rc):
+        self.log('MQTT Disconnected, reconnecting: {}', logger.CRIT)
+        self._mqtt.reconnect()
 
     def _on_message(self, client, userdata, message):
         try:
@@ -109,7 +67,6 @@ class Main:
             self.disable = True
             return
         self.own.settings_from_srv({'smarthome': {'disable_http': True}})
-        self._mqtt.subscribe(self.TOPIC_CMD)
         self._mqtt.loop_start()
         # Можно подписаться и на другие ивенты, потом не забыть отписаться.
         self.own.subscribe(self._events, self._callback)
