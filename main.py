@@ -53,6 +53,7 @@ class Main:
             msg = json.loads(message.payload.decode("utf-8"))
         except Exception as e:
             self.log('_on_message error: {}'.format(e), logger.ERROR)
+            self.log('Message: {}'.format(message.payload.decode("utf-8")), logger.ERROR)
             self.own.say('Сообщение не в JSON формате')
         else:
             if msg:
