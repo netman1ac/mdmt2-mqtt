@@ -50,7 +50,7 @@ class Main:
 
     def _on_message(self, client, userdata, message):
         try:
-            msg = json.loads(message.payload.decode("utf-8"))
+            msg = json.loads(message.payload.decode("utf-8"),strict=False)
         except Exception as e:
             self.log('_on_message error: {}'.format(e), logger.ERROR)
             self.log('Message: {}'.format(message.payload.decode("utf-8")), logger.ERROR)
