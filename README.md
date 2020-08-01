@@ -51,6 +51,24 @@ terminal = то топик автоматически будет установ�
     data_template:
       text: "{{ trigger.payload }}"
 
+Для работы с фразами от терминала и telegram создадим conversation
+conversation:
+  intents:
+     roomTemperature:
+     - температура в комнате
+
+И intent_script
+intent_script:
+  roomTemperature:
+    action:
+    - service: script.notify_mqtt
+      data_template:
+        message: >
+          Температура в комнате: {{ states('sensor.room_temp_sensor_temperature')|round(0) }}°,
+          а влажность: {{ states('sensor.room_temp_sensor_humidity')|round(0) }}%
+
+Теперь можно голосом или через telegram узнавать температуру в комнате по фразе: "температура в комнате"
+
 Скрипт передачи текста терминалу для проговаривания голосом
 #scripts
 notify_mqtt:
