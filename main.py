@@ -1,4 +1,6 @@
+import hashlib
 import json
+import uuid
 
 import paho.mqtt.client as mqtt
 
@@ -7,7 +9,15 @@ from owner import Owner
 
 NAME = 'mqtt'
 API = 999
-TERMINAL_VER_MIN = (0, 15, 10)
+TERMINAL_VER_MIN = (0, 18, 7)
+
+
+def unique_id():
+    return 'mdmt2_' + hashlib.md5(bytes(str(uuid.getnode()), "utf-8")).hexdigest()[:6]
+
+
+def dumps(data: list or dict) -> str:
+    return json.dumps(data, ensure_ascii=False)
 
 
 class Main:
@@ -19,42 +29,111 @@ class Main:
         self.log = log
         self.own = owner
         self.disable = False
-        self._events = (
+        self._volumes = ['volume', 'music_volume']
+        self._events = [
             'start_record', 'stop_record', 'start_talking', 'stop_talking', 'speech_recognized_success',
             'voice_activated',
-            'music_status')
+            'music_status'] + self._volumes
+        self._volumes_cmd_topics = {}
 
         self.BROKER_ADDRESS = self.cfg.gt('smarthome', 'ip')
         if not self.BROKER_ADDRESS:
             self.own.say('В настройках отсутствует ip адресс MQTT брокера')
-            self.disable = False
+            self.disable = True
             return
-        self.TOPIC = self.cfg.gt('smarthome', 'terminal') or 'terminal'
+        self.UNIQUE_ID = self.cfg.gt('smarthome', 'terminal') or unique_id()
+        self.TOPIC = 'terminals/' + self.UNIQUE_ID
         self.TOPIC_CONVERSATION = self.TOPIC + '/conversation'
         self.TOPIC_CMD = self.TOPIC + '/cmd'
         self.TOPIC_STATE = self.TOPIC + '/state'
+        self.TOPIC_VOLUMES = self.TOPIC + '/volumes'
 
-        self._mqtt = mqtt.Client(self.TOPIC,clean_session=False)
+        self._device = {
+            'ids': self.UNIQUE_ID,
+            'mf': 'Aculeasis',
+            'mdl': 'Smart Speaker',
+            'name': 'mdmTerminal2',
+            'sw': self.cfg.version_str
+        }
+        self._availability = {
+            'topic': self.TOPIC + '/availability',
+        }
+        self._sensors = {
+            'binary_sensor': [
+                {'name': 'record',
+                 'icon': 'hass:microphone',
+                 'stat_t': self.TOPIC_STATE,
+                 'uniq_id': '{}1'.format(self.UNIQUE_ID),
+                 'pl_on': 'start_record',
+                 'pl_off': 'stop_record',
+                 'val_tpl': '{{ value_json.state }}',
+                 },
+                {'name': 'talking',
+                 'dev_cla': 'sound',
+                 'stat_t': self.TOPIC_STATE,
+                 'uniq_id': '{}2'.format(self.UNIQUE_ID),
+                 'pl_on': 'start_talking',
+                 'pl_off': 'stop_talking',
+                 'val_tpl': '{{ value_json.state }}',
+                 },
+            ],
+            'sensor': [
+                {'name': 'say',
+                 'icon': 'hass:face-recognition',
+                 'frc_upd' : True,
+                 'stat_t': self.TOPIC_CONVERSATION,
+                 'uniq_id': '{}3'.format(self.UNIQUE_ID),
+                 },
+            ],
+            'number': [
+                {'cmd': 'volume',
+                 'name': 'Volume',
+                 'icon': 'hass:volume-vibrate',
+                 'stat_t': self.TOPIC_VOLUMES,
+                 'uniq_id': '{}4'.format(self.UNIQUE_ID),
+                 'val_tpl': '{{value_json.volume}}'
+                 },
+                {'cmd': 'music_volume',
+                 'name': 'Music Volume',
+                 'icon': 'hass:volume-vibrate',
+                 'stat_t': self.TOPIC_VOLUMES,
+                 'uniq_id': '{}5'.format(self.UNIQUE_ID),
+                 'val_tpl': '{{value_json.music_volume}}'
+                 },
+            ]
+        }
+        self._mqtt = mqtt.Client(self.UNIQUE_ID, clean_session=False)
+
         self._mqtt.on_connect = self._on_connect
         self._mqtt.on_disconnect = self._on_disconnect
         self._mqtt.on_message = self._on_message
-        self._mqtt.reconnect_delay_set(min_delay = 1, max_delay = 600)
+        self._mqtt.reconnect_delay_set(max_delay=600)
 
     def _on_connect(self, client, userdata, flags, rc):
         self.log('MQTT connected, subscribing to: {}'.format(self.TOPIC_CMD), logger.INFO)
-        self._mqtt.subscribe(self.TOPIC_CMD,qos=1)
+        self._mqtt.subscribe(self.TOPIC_CMD, qos=1)
+        for topic in self._volumes_cmd_topics:
+            self._mqtt.subscribe(topic)
+        self._mqtt.publish(self._availability['topic'], 'online', retain=True)
 
     def _on_disconnect(self, client, userdata, rc):
         self.log('MQTT Disconnected, reconnecting: {}', logger.CRIT)
         self._mqtt.reconnect()
 
-    def _on_message(self, client, userdata, message):
+    def _on_message(self, client, userdata, message: mqtt.MQTTMessage):
         try:
-            msg = json.loads(message.payload.decode("utf-8"),strict=False)
+            if message.topic in self._volumes_cmd_topics:
+                key = self._volumes_cmd_topics[message.topic]
+                if key == 'music_volume':
+                    key = 'mvolume'
+                msg = {key: message.payload.decode("utf-8")}
+            else:
+                msg = json.loads(message.payload.decode("utf-8"), strict=False)
         except Exception as e:
             self.log('_on_message error: {}'.format(e), logger.ERROR)
-            self.log('Message: {}'.format(message.payload.decode("utf-8")), logger.ERROR)
-            self.own.say('Сообщение не в JSON формате')
+            if type(e) in (json.decoder.JSONDecodeError, TypeError):
+                self.log('Message: {}'.format(message.payload.decode("utf-8")), logger.ERROR)
+                self.own.say('Сообщение не в JSON формате')
         else:
             if msg:
                 self._call_cmd(msg)
@@ -67,21 +146,26 @@ class Main:
             self.log('MQTT connecting error: {}'.format(e), logger.CRIT)
             self.disable = True
             return
+        self._start_pubs()
         self.own.settings_from_srv({'smarthome': {'disable_http': True}})
         self._mqtt.loop_start()
         # Можно подписаться и на другие ивенты, потом не забыть отписаться.
         self.own.subscribe(self._events, self._callback)
-        self.own.subscribe(self.CMD, self._publish_conversation)
 
     def join(self, *_, **__):
         if not self.disable:
+            self._join_pubs()
             self.own.unsubscribe(self.CMD, self._publish_conversation)
             self.own.unsubscribe(self._events, self._callback)
             self._mqtt.loop_stop()
 
     def _callback(self, name, *args, **kwargs):
         self.log('send state: {} {} {}'.format(name, args, kwargs))
-        self._mqtt.publish(self.TOPIC_STATE, name)
+        if name in self._volumes:
+            if args:
+                self._mqtt.publish(self.TOPIC_VOLUMES, dumps({name: args[0]}))
+        else:
+            self._mqtt.publish(self.TOPIC_STATE, dumps({'state': name, 'args': args, 'kwargs': kwargs}))
 
     def _publish_conversation(self, name, *args, **kwargs):
         self.log('send text: {} {} {}'.format(name, args, kwargs))
@@ -92,7 +176,27 @@ class Main:
     def _call_cmd(self, msg: dict):
         for key, value in msg.items():
             self.log('New command {}, data: {}'.format(key, repr(value)))
-            if key in ['voice', 'tts', 'ask', 'volume', 'nvolume', 'listener']:
+            if key in ['voice', 'tts', 'ask', 'volume', 'mvolume', 'listener']:
                 self.own.terminal_call(key, value)
             else:
                 self.own.say('Получена неизвестная команда')
+
+    def _start_pubs(self):
+        for sensor_type, sensors in self._sensors.items():
+            for sensor in sensors:
+                sensor.update({'dev': self._device, 'avty': [self._availability]})
+                if sensor_type == 'number':
+                    sensor = self._number_update(sensor)
+                self._mqtt.publish(
+                    'homeassistant/{}/{}/config'.format(sensor_type, sensor['uniq_id']), dumps(sensor)
+                )
+
+    def _number_update(self, sensor):
+        cmd = sensor.pop('cmd')
+        cmd_t = self.TOPIC + '/CTL/' + sensor['uniq_id']
+        self._volumes_cmd_topics[cmd_t] = cmd
+        sensor.update({'cmd_t': cmd_t})
+        return sensor
+
+    def _join_pubs(self):
+        self._mqtt.publish(self._availability['topic'], 'offline', retain=True)
