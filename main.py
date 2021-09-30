@@ -58,12 +58,13 @@ class Main:
         self._availability = {
             'topic': self.TOPIC + '/availability',
         }
+        # Для генерации uniq_id
+        self._sensors_order = ['binary_sensor', 'sensor', 'number']
         self._sensors = {
             'binary_sensor': [
                 {'name': 'record',
                  'icon': 'hass:microphone',
                  'stat_t': self.TOPIC_STATE,
-                 'uniq_id': '{}1'.format(self.UNIQUE_ID),
                  'pl_on': 'start_record',
                  'pl_off': 'stop_record',
                  'val_tpl': '{{ value_json.state }}',
@@ -71,7 +72,6 @@ class Main:
                 {'name': 'talking',
                  'dev_cla': 'sound',
                  'stat_t': self.TOPIC_STATE,
-                 'uniq_id': '{}2'.format(self.UNIQUE_ID),
                  'pl_on': 'start_talking',
                  'pl_off': 'stop_talking',
                  'val_tpl': '{{ value_json.state }}',
@@ -82,19 +82,16 @@ class Main:
                  'icon': 'hass:face-recognition',
                  'frc_upd' : True,
                  'stat_t': self.TOPIC_CONVERSATION,
-                 'uniq_id': '{}3'.format(self.UNIQUE_ID),
                  },
             ],
             'number': [
                 {'cmd': 'volume',
                  'name': 'Volume',
                  'icon': 'hass:volume-vibrate',
-                 'uniq_id': '{}4'.format(self.UNIQUE_ID),
                  },
                 {'cmd': 'music_volume',
                  'name': 'Music Volume',
                  'icon': 'hass:volume-vibrate',
-                 'uniq_id': '{}5'.format(self.UNIQUE_ID),
                  },
             ]
         }
@@ -152,10 +149,10 @@ class Main:
 
     def join(self, *_, **__):
         if not self.disable:
-            self._join_pubs()
             self.own.unsubscribe(self.CMD, self._publish_conversation)
             self.own.unsubscribe(self._events, self._callback)
             self._mqtt.loop_stop()
+            self._join_pubs()
             self._mqtt.disconnect()
 
     def _callback(self, name, *args, **kwargs):
@@ -181,16 +178,23 @@ class Main:
                 self.own.say('Получена неизвестная команда')
 
     def _start_pubs(self):
-        for sensor_type, sensors in self._sensors.items():
-            for sensor in sensors:
-                sensor.update({'dev': self._device, 'avty': [self._availability]})
+        idx = 1
+        for sensor_type in self._sensors_order:
+            for sensor in self._sensors[sensor_type]:
+                sensor = self._all_update(sensor, idx)
                 if sensor_type == 'number':
                     sensor = self._number_update(sensor)
-                self._mqtt.publish(
-                    'homeassistant/{}/{}/config'.format(sensor_type, sensor['uniq_id']), dumps(sensor)
-                )
+                topic = 'homeassistant/{}/{}/config'.format(sensor_type, sensor['uniq_id'])
+                self._mqtt.publish(topic, dumps(sensor))
+                idx += 1
 
-    def _number_update(self, sensor):
+    def _all_update(self, sensor: dict, idx: int):
+        sensor.update(
+            {'uniq_id': '{}{}'.format(self.UNIQUE_ID, idx), 'dev': self._device, 'avty': [self._availability]}
+        )
+        return sensor
+
+    def _number_update(self, sensor: dict):
         cmd = sensor.pop('cmd')
         cmd_t = self.TOPIC + '/CTL/' + sensor['uniq_id']
         stat_t = self.TOPIC + '/STAT/' + sensor['uniq_id']
