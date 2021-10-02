@@ -118,6 +118,7 @@ class Main:
             self._mqtt.subscribe(topic)
         self._send_discovery()
         self._send_availability(online=True)
+        self._send_default_values()
 
     def _on_disconnect(self, client, userdata, rc):
         if not rc:
@@ -167,7 +168,7 @@ class Main:
     def _callback(self, name, *args, **kwargs):
         self.log('send state: {} {} {}'.format(name, args, kwargs))
         if name in self._controllable_stat_topics:
-            if args:
+            if args and not isinstance(args[0], int) or 0 <= args[0] <= 100:
                 self._mqtt.publish(self._controllable_stat_topics[name], args[0])
         else:
             self._mqtt.publish(self.TOPIC_STATE, dumps({'state': name, 'args': args, 'kwargs': kwargs}))
@@ -217,3 +218,9 @@ class Main:
 
     def _send_availability(self, online: bool):
         self._mqtt.publish(self._availability['topic'], 'online' if online else 'offline', retain=True)
+
+    def _send_default_values(self):
+        volume = self.own.get_volume_status
+        self._callback('volume', volume['volume'])
+        self._callback('music_volume', volume['music_volume'])
+        self._callback('listener', 'on' if self.own.terminal_listen() else 'off')
