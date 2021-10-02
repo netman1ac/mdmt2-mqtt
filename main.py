@@ -95,6 +95,7 @@ class Main:
                  },
             ]
         }
+        self._prepare_discovery()
         self._mqtt = mqtt.Client(self.UNIQUE_ID, clean_session=False)
 
         self._mqtt.on_connect = self._on_connect
@@ -107,7 +108,8 @@ class Main:
         self._mqtt.subscribe(self.TOPIC_CMD, qos=1)
         for topic in self._volumes_cmd_topics:
             self._mqtt.subscribe(topic)
-        self._mqtt.publish(self._availability['topic'], 'online', retain=True)
+        self._send_discovery()
+        self._send_availability(online=True)
 
     def _on_disconnect(self, client, userdata, rc):
         if not rc:
@@ -140,7 +142,6 @@ class Main:
             self.own.say('Ошибка подключения к MQTT брокеру')
             self.log('MQTT connecting error: {}'.format(e), logger.CRIT)
             return
-        self._start_pubs()
         self.own.settings_from_srv({'smarthome': {'disable_http': True}})
         self._mqtt.loop_start()
         # Можно подписаться и на другие ивенты, потом не забыть отписаться.
@@ -152,7 +153,7 @@ class Main:
             self.own.unsubscribe(self.CMD, self._publish_conversation)
             self.own.unsubscribe(self._events, self._callback)
             self._mqtt.loop_stop()
-            self._join_pubs()
+            self._send_availability(online=False)
             self._mqtt.disconnect()
 
     def _callback(self, name, *args, **kwargs):
@@ -177,16 +178,19 @@ class Main:
             else:
                 self.own.say('Получена неизвестная команда')
 
-    def _start_pubs(self):
+    def _prepare_discovery(self):
         idx = 1
         for sensor_type in self._sensors_order:
             for sensor in self._sensors[sensor_type]:
-                sensor = self._all_update(sensor, idx)
+                self._all_update(sensor, idx)
                 if sensor_type == 'number':
-                    sensor = self._number_update(sensor)
-                topic = 'homeassistant/{}/{}/config'.format(sensor_type, sensor['uniq_id'])
-                self._mqtt.publish(topic, dumps(sensor))
+                    self._number_update(sensor)
                 idx += 1
+
+    def _send_discovery(self):
+        for sensor_type, sensors in self._sensors.items():
+            for sensor in sensors:
+                self._mqtt.publish('homeassistant/{}/{}/config'.format(sensor_type, sensor['uniq_id']), dumps(sensor))
 
     def _all_update(self, sensor: dict, idx: int):
         sensor.update(
@@ -203,5 +207,5 @@ class Main:
         sensor.update({'cmd_t': cmd_t, 'stat_t': stat_t})
         return sensor
 
-    def _join_pubs(self):
-        self._mqtt.publish(self._availability['topic'], 'offline', retain=True)
+    def _send_availability(self, online: bool):
+        self._mqtt.publish(self._availability['topic'], 'online' if online else 'offline', retain=True)
