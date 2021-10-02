@@ -36,6 +36,8 @@ class Main:
             'music_status'] + self._controllable
         self._controllable_ctl_topics = {}
         self._controllable_stat_topics = {}
+        # https://www.home-assistant.io/docs/mqtt/birth_will/
+        self._ha_status_topic = 'homeassistant/status'
 
         self.BROKER_ADDRESS = self.cfg.gt('smarthome', 'ip')
         if not self.BROKER_ADDRESS:
@@ -116,6 +118,10 @@ class Main:
         self._mqtt.subscribe(self.TOPIC_CMD, qos=1)
         for topic in self._controllable_ctl_topics:
             self._mqtt.subscribe(topic)
+        self._mqtt.subscribe(self._ha_status_topic)
+        self._send_initial_data()
+
+    def _send_initial_data(self):
         self._send_discovery()
         self._send_availability(online=True)
         self._send_default_values()
@@ -133,6 +139,12 @@ class Main:
                 if key == 'music_volume':
                     key = 'mvolume'
                 msg = {key: message.payload.decode("utf-8")}
+            elif message.topic == self._ha_status_topic:
+                msg = None
+                status = message.payload.decode("utf-8")
+                self.log('Home Assistant: {}'.format(status))
+                if status == 'online':
+                    self._send_initial_data()
             else:
                 msg = json.loads(message.payload.decode("utf-8"), strict=False)
         except Exception as e:
