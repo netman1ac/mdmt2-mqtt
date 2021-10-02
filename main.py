@@ -29,13 +29,13 @@ class Main:
         self.log = log
         self.own = owner
         self.disable = False
-        self._volumes = ['volume', 'music_volume']
+        self._controllable = ['volume', 'music_volume', 'listener']
         self._events = [
             'start_record', 'stop_record', 'start_talking', 'stop_talking', 'speech_recognized_success',
             'voice_activated',
-            'music_status'] + self._volumes
-        self._volumes_cmd_topics = {}
-        self._volumes_stat_topics = {}
+            'music_status'] + self._controllable
+        self._controllable_ctl_topics = {}
+        self._controllable_stat_topics = {}
 
         self.BROKER_ADDRESS = self.cfg.gt('smarthome', 'ip')
         if not self.BROKER_ADDRESS:
@@ -59,7 +59,7 @@ class Main:
             'topic': self.TOPIC + '/availability',
         }
         # Для генерации uniq_id
-        self._sensors_order = ['binary_sensor', 'sensor', 'number']
+        self._sensors_order = ['binary_sensor', 'sensor', 'number', 'switch']
         self._sensors = {
             'binary_sensor': [
                 {'name': 'record',
@@ -93,7 +93,15 @@ class Main:
                  'name': 'Music Volume',
                  'icon': 'hass:volume-vibrate',
                  },
-            ]
+            ],
+            'switch': [
+                {'cmd': 'listener',
+                 'name': 'Mic enabled',
+                 'icon': 'hass:microphone-settings',
+                 'pl_on': 'on',
+                 'pl_off': 'off'
+                 },
+            ],
         }
         self._prepare_discovery()
         self._mqtt = mqtt.Client(self.UNIQUE_ID, clean_session=False)
@@ -106,7 +114,7 @@ class Main:
     def _on_connect(self, client, userdata, flags, rc):
         self.log('MQTT connected, subscribing to: {}'.format(self.TOPIC_CMD), logger.INFO)
         self._mqtt.subscribe(self.TOPIC_CMD, qos=1)
-        for topic in self._volumes_cmd_topics:
+        for topic in self._controllable_ctl_topics:
             self._mqtt.subscribe(topic)
         self._send_discovery()
         self._send_availability(online=True)
@@ -119,8 +127,8 @@ class Main:
 
     def _on_message(self, client, userdata, message: mqtt.MQTTMessage):
         try:
-            if message.topic in self._volumes_cmd_topics:
-                key = self._volumes_cmd_topics[message.topic]
+            if message.topic in self._controllable_ctl_topics:
+                key = self._controllable_ctl_topics[message.topic]
                 if key == 'music_volume':
                     key = 'mvolume'
                 msg = {key: message.payload.decode("utf-8")}
@@ -158,9 +166,9 @@ class Main:
 
     def _callback(self, name, *args, **kwargs):
         self.log('send state: {} {} {}'.format(name, args, kwargs))
-        if name in self._volumes_stat_topics:
+        if name in self._controllable_stat_topics:
             if args:
-                self._mqtt.publish(self._volumes_stat_topics[name], args[0])
+                self._mqtt.publish(self._controllable_stat_topics[name], args[0])
         else:
             self._mqtt.publish(self.TOPIC_STATE, dumps({'state': name, 'args': args, 'kwargs': kwargs}))
 
@@ -183,8 +191,8 @@ class Main:
         for sensor_type in self._sensors_order:
             for sensor in self._sensors[sensor_type]:
                 self._all_update(sensor, idx)
-                if sensor_type == 'number':
-                    self._number_update(sensor)
+                if sensor_type in ['number', 'switch']:
+                    self._controllable_update(sensor)
                 idx += 1
 
     def _send_discovery(self):
@@ -198,12 +206,12 @@ class Main:
         )
         return sensor
 
-    def _number_update(self, sensor: dict):
+    def _controllable_update(self, sensor: dict):
         cmd = sensor.pop('cmd')
         cmd_t = self.TOPIC + '/CTL/' + sensor['uniq_id']
         stat_t = self.TOPIC + '/STAT/' + sensor['uniq_id']
-        self._volumes_cmd_topics[cmd_t] = cmd
-        self._volumes_stat_topics[cmd] = stat_t
+        self._controllable_ctl_topics[cmd_t] = cmd
+        self._controllable_stat_topics[cmd] = stat_t
         sensor.update({'cmd_t': cmd_t, 'stat_t': stat_t})
         return sensor
 
