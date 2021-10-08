@@ -1,5 +1,6 @@
 import hashlib
 import json
+import urllib.parse
 import uuid
 
 import paho.mqtt.client as mqtt
@@ -39,11 +40,11 @@ class Main:
         # https://www.home-assistant.io/docs/mqtt/birth_will/
         self._ha_status_topic = 'homeassistant/status'
 
-        self.BROKER_ADDRESS = self.cfg.gt('smarthome', 'ip')
-        if not self.BROKER_ADDRESS:
+        if not self.cfg.gt('smarthome', 'ip'):
             self.own.say('В настройках отсутствует ip адресс MQTT брокера')
             self.disable = True
             return
+        self._mqtt_data = self._mqtt_data_filling()
         self.UNIQUE_ID = self.cfg.gt('smarthome', 'terminal') or unique_id()
         self.TOPIC = 'terminals/' + self.UNIQUE_ID
         self.TOPIC_CONVERSATION = self.TOPIC + '/conversation'
@@ -106,12 +107,45 @@ class Main:
             ],
         }
         self._prepare_discovery()
-        self._mqtt = mqtt.Client(self.UNIQUE_ID, clean_session=False)
-
+        self._mqtt = mqtt.Client(self.UNIQUE_ID, clean_session=False, transport=self._mqtt_data['type'])
+        if self._mqtt_data['type'] == 'websockets':
+            self._mqtt.ws_set_options(path=self._mqtt_data['path'])
+        if self._mqtt_data['username']:
+            self._mqtt.username_pw_set(self._mqtt_data['username'], self._mqtt_data['password'])
         self._mqtt.on_connect = self._on_connect
         self._mqtt.on_disconnect = self._on_disconnect
         self._mqtt.on_message = self._on_message
         self._mqtt.reconnect_delay_set(max_delay=600)
+
+    def _mqtt_data_filling(self) -> dict:
+        values = {
+            'type': 'tcp',
+            'addr': self.cfg.gt('smarthome', 'ip'),
+            'port': 1883, 'username': None,
+            'password': None,
+            'path': '/'
+        }
+        if self.cfg.gt('smarthome', 'username'):
+            values.update(
+                {'username': self.cfg.gt('smarthome', 'username'), 'password': self.cfg.gt('smarthome', 'password')}
+            )
+        pr = urllib.parse.urlparse(self.cfg.gt('smarthome', 'ip'))
+        try:
+            ip_data = {
+                'type': pr.scheme or values['type'],
+                'addr': pr.hostname or values['addr'],
+                'port': pr.port or values['port'],
+                'path': pr.path or values['path'],
+            }
+            if pr.username and pr.password:
+                ip_data.update({'username': pr.username, 'password': pr.password})
+        except ValueError as e:
+            self.log('Error Parsing [smarthome] ip, it will be used as is: {}'.format(e), logger.ERROR)
+        else:
+            values.update(ip_data)
+        # TODO: SSL, TLS и т.д.
+        values['type'] = 'websockets' if values['type'] in ('ws', 'wss') else 'tcp'
+        return values
 
     def _on_connect(self, client, userdata, flags, rc):
         self.log('MQTT connected, subscribing to: {}'.format(self.TOPIC_CMD), logger.INFO)
@@ -157,8 +191,20 @@ class Main:
                 self._call_cmd(msg)
 
     def start(self):
+        add_msg = []
+        if self._mqtt_data['path'] and self._mqtt_data['type'] == 'websockets':
+            add_msg.append('path: {}'.format(self._mqtt_data['path']))
+        if self._mqtt_data['username']:
+            add_msg.append('username: {}'.format(self._mqtt_data['username']))
+            if self._mqtt_data['password']:
+                add_msg.append('password present')
+        if add_msg:
+            add_msg.insert(0, '')
+        self.log('Connecting to {}:{} through {}{}'.format(
+            self._mqtt_data['addr'], self._mqtt_data['port'], self._mqtt_data['type'], ', '.join(add_msg))
+        )
         try:
-            self._mqtt.connect(self.BROKER_ADDRESS)
+            self._mqtt.connect(host=self._mqtt_data['addr'], port=self._mqtt_data['port'])
         except (OSError, ConnectionRefusedError) as e:
             self.own.say('Ошибка подключения к MQTT брокеру')
             self.log('MQTT connecting error: {}'.format(e), logger.CRIT)
