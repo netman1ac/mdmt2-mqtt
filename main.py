@@ -1,5 +1,6 @@
 import hashlib
 import json
+import time
 import urllib.parse
 import uuid
 
@@ -158,7 +159,7 @@ class Main:
     def _send_initial_data(self):
         self._send_discovery()
         self._send_availability(online=True)
-        self._send_default_values()
+        self.own.messenger(self._send_default_values, None)
 
     def _on_disconnect(self, client, userdata, rc):
         if not rc:
@@ -278,7 +279,8 @@ class Main:
         self._mqtt.publish(self._availability['topic'], 'online' if online else 'offline', retain=True)
 
     def _send_default_values(self):
-        volume = self.own.get_volume_status
-        self._callback('volume', volume['volume'])
-        self._callback('music_volume', volume['music_volume'])
-        self._callback('listener', 'on' if self.own.terminal_listen() else 'off')
+        data = self.own.get_volume_status
+        data.update({'listener': 'on' if self.own.terminal_listen() else 'off'})
+        time.sleep(3.0)
+        for key, value in data.items():
+            self._callback(key, value)
