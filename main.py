@@ -107,7 +107,6 @@ class Main:
                  },
             ],
         }
-        self._prepare_discovery()
         self._mqtt = mqtt.Client(self.UNIQUE_ID, clean_session=False, transport=self._mqtt_data['type'])
         if self._mqtt_data['type'] == 'websockets':
             self._mqtt.ws_set_options(path=self._mqtt_data['path'])
@@ -147,6 +146,19 @@ class Main:
         # TODO: SSL, TLS и т.д.
         values['type'] = 'websockets' if values['type'] in ('ws', 'wss') else 'tcp'
         return values
+
+    def _get_web_config_url(self) -> str or None:
+        try:
+            web_config = self.own.get_plugin('web-config')
+        except RuntimeError:
+            return None
+        try:
+            # noinspection PyProtectedMember
+            port = web_config._server.port
+        except Exception as e:
+            self.log('Web Config access error: {}'.format(e))
+            return None
+        return 'http://{}:{}/'.format(self.cfg.gts('ip'), port)
 
     def _on_connect(self, client, userdata, flags, rc):
         self.log('MQTT connected, subscribing to: {}'.format(self.TOPIC_CMD), logger.INFO)
@@ -192,6 +204,10 @@ class Main:
                 self._call_cmd(msg)
 
     def start(self):
+        # В __init__ нельзя, вдруг плагин еще не инициализирован.
+        cu = self._get_web_config_url()
+        if cu:
+            self._device.update({'cu': cu})
         add_msg = []
         if self._mqtt_data['path'] and self._mqtt_data['type'] == 'websockets':
             add_msg.append('path: {}'.format(self._mqtt_data['path']))
@@ -204,6 +220,7 @@ class Main:
         self.log('Connecting to {}:{} through {}{}'.format(
             self._mqtt_data['addr'], self._mqtt_data['port'], self._mqtt_data['type'], ', '.join(add_msg))
         )
+        self._prepare_discovery()
         try:
             self._mqtt.connect(host=self._mqtt_data['addr'], port=self._mqtt_data['port'])
         except (OSError, ConnectionRefusedError) as e:
