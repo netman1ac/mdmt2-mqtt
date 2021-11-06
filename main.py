@@ -156,7 +156,7 @@ class Main:
             # noinspection PyProtectedMember
             port = web_config._server.port
         except Exception as e:
-            self.log('Web Config access error: {}'.format(e))
+            self.log('Web Config access error: {}'.format(e), logger.ERROR)
             return None
         return 'http://{}:{}/'.format(self.cfg.gts('ip'), port)
 
