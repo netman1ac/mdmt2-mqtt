@@ -166,12 +166,13 @@ class Main:
         for topic in self._controllable_ctl_topics:
             self._mqtt.subscribe(topic)
         self._mqtt.subscribe(self._ha_status_topic)
-        self._send_initial_data()
+        self.own.messenger(self._send_initial_data, None)
 
     def _send_initial_data(self):
         self._send_discovery()
+        time.sleep(3.0)
         self._send_availability(online=True)
-        self.own.messenger(self._send_default_values, None)
+        self._send_default_values()
 
     def _on_disconnect(self, client, userdata, rc):
         if not rc:
@@ -191,7 +192,8 @@ class Main:
                 status = message.payload.decode("utf-8")
                 self.log('Home Assistant: {}'.format(status))
                 if status == 'online':
-                    self._send_initial_data()
+                    time.sleep(5.0)
+                    self.own.messenger(self._send_initial_data, None)
             else:
                 msg = json.loads(message.payload.decode("utf-8"), strict=False)
         except Exception as e:
