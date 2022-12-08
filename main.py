@@ -63,7 +63,7 @@ class Main:
             'topic': self.TOPIC + '/availability',
         }
         # Для генерации uniq_id
-        self._sensors_order = ['binary_sensor', 'sensor', 'number', 'switch']
+        self._sensors_order = ['binary_sensor', 'sensor', 'number', 'switch', 'text']
         self._sensors = {
             'binary_sensor': [
                 {'name': 'record',
@@ -104,6 +104,12 @@ class Main:
                  'icon': 'hass:microphone-settings',
                  'pl_on': 'on',
                  'pl_off': 'off'
+                 },
+            ],
+            'text': [
+                {'name': 'Say',
+                 'cmd_t': self.TOPIC_CMD,
+                 'cmd_tpl': '{"tts": {{ value|tojson }} }'
                  },
             ],
         }
